@@ -1,7 +1,9 @@
 import { AuthResponse, User } from './types';
 
+const API_BASE = 'https://backendapp-7vxqqu38.us-east.insforge.app';
+
 export async function register(email: string, password: string, name: string): Promise<AuthResponse> {
-  const response = await fetch('/api/auth/users', {
+  const response = await fetch(`${API_BASE}/api/auth/users`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password, name }),
@@ -10,7 +12,7 @@ export async function register(email: string, password: string, name: string): P
 }
 
 export async function login(email: string, password: string): Promise<AuthResponse> {
-  const response = await fetch('/api/auth/sessions', {
+  const response = await fetch(`${API_BASE}/api/auth/sessions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password }),
@@ -20,7 +22,7 @@ export async function login(email: string, password: string): Promise<AuthRespon
 }
 
 export async function logout(): Promise<{ success: boolean; message?: string }> {
-  const response = await fetch('/api/auth/logout', {
+  const response = await fetch(`${API_BASE}/api/auth/logout`, {
     method: 'POST',
     credentials: 'include',
   });
@@ -29,7 +31,7 @@ export async function logout(): Promise<{ success: boolean; message?: string }> 
 
 export async function getCurrentUser(): Promise<User | null> {
   try {
-    const response = await fetch('/api/auth/sessions/current', {
+    const response = await fetch(`${API_BASE}/api/auth/sessions/current`, {
       credentials: 'include',
     });
     if (!response.ok) return null;
@@ -41,7 +43,7 @@ export async function getCurrentUser(): Promise<User | null> {
 }
 
 export async function refreshToken(): Promise<AuthResponse> {
-  const response = await fetch('/api/auth/refresh', {
+  const response = await fetch(`${API_BASE}/api/auth/refresh`, {
     method: 'POST',
     credentials: 'include',
   });
