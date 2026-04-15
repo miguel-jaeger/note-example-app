@@ -1,10 +1,17 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
+import dynamic from 'next/dynamic';
 import { useAuth } from '../../hooks/useAuth';
-import { LoadingScreen, Modal } from '../../components';
+import { LoadingScreen } from '../../components';
+
+// Dynamic import for Modal to reduce initial bundle size
+const Modal = dynamic(() => import('../../components/Modal').then(mod => ({ default: mod.Modal })), {
+  ssr: false,
+  loading: () => null,
+});
 import {
   getBoardById,
   getColumns,
@@ -30,6 +37,10 @@ export default function BoardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
+  // Refs para controlar race conditions y memory leaks
+  const isMounted = useRef(true);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
   // New task state
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [newTaskColumn, setNewTaskColumn] = useState('');
@@ -46,16 +57,27 @@ export default function BoardPage() {
   const [editingTaskDesc, setEditingTaskDesc] = useState('');
 
   useEffect(() => {
+    isMounted.current = true;
+    abortControllerRef.current = new AbortController();
+
     if (user && !isLoading) {
       fetchBoardData();
     }
-  }, [user, isLoading]);
 
-  const fetchBoardData = async () => {
-    if (!user) return;
+    return () => {
+      isMounted.current = false;
+      abortControllerRef.current?.abort();
+    };
+  }, [user, isLoading, boardId]);
+
+  const fetchBoardData = useCallback(async () => {
+    if (!user || !isMounted.current) return;
 
     try {
+      setLoading(true);
       const board = await getBoardById(boardId, user.id);
+      if (!isMounted.current) return;
+
       if (!board) {
         router.push('/dashboard');
         return;
@@ -64,21 +86,30 @@ export default function BoardPage() {
       setBoardName(board.name);
 
       const columnsData = await getColumns(boardId);
+      if (!isMounted.current) return;
+
       setColumns(columnsData);
 
       const columnIds = columnsData.map((c) => c.id);
       const tasksData = await getTasks(columnIds);
-      setTasks(tasksData);
-    } catch (err: any) {
-      setError(err.message || 'Failed to load board');
-    } finally {
-      setLoading(false);
-    }
-  };
+      if (!isMounted.current) return;
 
-  const handleAddTask = async (e: React.FormEvent) => {
+      setTasks(tasksData);
+      setError('');
+    } catch (err: any) {
+      if (isMounted.current) {
+        setError(err.message || 'Failed to load board');
+      }
+    } finally {
+      if (isMounted.current) {
+        setLoading(false);
+      }
+    }
+  }, [user, boardId, router]);
+
+  const handleAddTask = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newTaskTitle.trim() || !newTaskColumn) return;
+    if (!newTaskTitle.trim() || !newTaskColumn || !isMounted.current) return;
 
     setAddingTask(true);
     setError('');
@@ -88,44 +119,56 @@ export default function BoardPage() {
       const maxPosition = columnTasks.length > 0 ? Math.max(...columnTasks.map((t) => t.position)) : -1;
 
       const task = await createTask(newTaskTitle.trim(), newTaskColumn, maxPosition + 1);
-      setTasks([...tasks, task]);
+      if (!isMounted.current) return;
+
+      setTasks((prev) => [...prev, task]);
       setNewTaskTitle('');
       setNewTaskColumn('');
     } catch (err: any) {
-      setError(err.message || 'Failed to add task');
+      if (isMounted.current) {
+        setError(err.message || 'Failed to add task');
+      }
     } finally {
-      setAddingTask(false);
+      if (isMounted.current) {
+        setAddingTask(false);
+      }
     }
-  };
+  }, [newTaskTitle, newTaskColumn, tasks]);
 
-  const handleDeleteTask = async (taskId: string) => {
+  const handleDeleteTask = useCallback(async (taskId: string) => {
     if (!confirm('Delete this task?')) return;
 
     try {
       await deleteTask(taskId);
-      setTasks(tasks.filter((t) => t.id !== taskId));
-      if (selectedTask?.id === taskId) {
-        setSelectedTask(null);
-      }
-    } catch (err: any) {
-      setError(err.message || 'Failed to delete task');
-    }
-  };
+      if (!isMounted.current) return;
 
-  const handleMoveTask = async (taskId: string, newColumnId: string) => {
+      setTasks((prev) => prev.filter((t) => t.id !== taskId));
+      setSelectedTask((prev) => (prev?.id === taskId ? null : prev));
+    } catch (err: any) {
+      if (isMounted.current) {
+        setError(err.message || 'Failed to delete task');
+      }
+    }
+  }, []);
+
+  const handleMoveTask = useCallback(async (taskId: string, newColumnId: string) => {
     const columnTasks = tasks.filter((t) => t.column_id === newColumnId);
     const maxPosition = columnTasks.length > 0 ? Math.max(...columnTasks.map((t) => t.position)) : -1;
 
     try {
       await updateTask(taskId, { column_id: newColumnId, position: maxPosition + 1 });
-      setTasks(tasks.map((t) => (t.id === taskId ? { ...t, column_id: newColumnId } : t)));
-    } catch (err: any) {
-      setError(err.message || 'Failed to move task');
-    }
-  };
+      if (!isMounted.current) return;
 
-  const handleUpdateTask = async () => {
-    if (!selectedTask) return;
+      setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, column_id: newColumnId } : t)));
+    } catch (err: any) {
+      if (isMounted.current) {
+        setError(err.message || 'Failed to move task');
+      }
+    }
+  }, [tasks]);
+
+  const handleUpdateTask = useCallback(async () => {
+    if (!selectedTask || !isMounted.current) return;
 
     try {
       await updateTask(selectedTask.id, {
@@ -133,8 +176,10 @@ export default function BoardPage() {
         description: editingTaskDesc || null,
       });
 
-      setTasks(
-        tasks.map((t) =>
+      if (!isMounted.current) return;
+
+      setTasks((prev) =>
+        prev.map((t) =>
           t.id === selectedTask.id
             ? { ...t, title: editingTaskTitle, description: editingTaskDesc || null }
             : t
@@ -142,13 +187,15 @@ export default function BoardPage() {
       );
       setSelectedTask(null);
     } catch (err: any) {
-      setError(err.message || 'Failed to update task');
+      if (isMounted.current) {
+        setError(err.message || 'Failed to update task');
+      }
     }
-  };
+  }, [selectedTask, editingTaskTitle, editingTaskDesc]);
 
-  const handleAddColumn = async (e: React.FormEvent) => {
+  const handleAddColumn = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newColumnName.trim()) return;
+    if (!newColumnName.trim() || !isMounted.current) return;
 
     setAddingColumn(true);
     setError('');
@@ -156,33 +203,43 @@ export default function BoardPage() {
     try {
       const maxPosition = columns.length > 0 ? Math.max(...columns.map((c) => c.position)) : -1;
       const column = await createColumn(newColumnName.trim(), boardId, maxPosition + 1);
-      setColumns([...columns, column]);
+      if (!isMounted.current) return;
+
+      setColumns((prev) => [...prev, column]);
       setNewColumnName('');
       setShowColumnModal(false);
     } catch (err: any) {
-      setError(err.message || 'Failed to add column');
+      if (isMounted.current) {
+        setError(err.message || 'Failed to add column');
+      }
     } finally {
-      setAddingColumn(false);
+      if (isMounted.current) {
+        setAddingColumn(false);
+      }
     }
-  };
+  }, [newColumnName, columns, boardId]);
 
-  const handleDeleteColumn = async (columnId: string) => {
+  const handleDeleteColumn = useCallback(async (columnId: string) => {
     if (!confirm('Delete this column and all its tasks?')) return;
 
     try {
       await deleteColumn(columnId);
-      setColumns(columns.filter((c) => c.id !== columnId));
-      setTasks(tasks.filter((t) => t.column_id !== columnId));
-    } catch (err: any) {
-      setError(err.message || 'Failed to delete column');
-    }
-  };
+      if (!isMounted.current) return;
 
-  const openTaskModal = (task: Task) => {
+      setColumns((prev) => prev.filter((c) => c.id !== columnId));
+      setTasks((prev) => prev.filter((t) => t.column_id !== columnId));
+    } catch (err: any) {
+      if (isMounted.current) {
+        setError(err.message || 'Failed to delete column');
+      }
+    }
+  }, []);
+
+  const openTaskModal = useCallback((task: Task) => {
     setSelectedTask(task);
     setEditingTaskTitle(task.title);
     setEditingTaskDesc(task.description || '');
-  };
+  }, []);
 
   if (isLoading || loading) {
     return <LoadingScreen />;

@@ -4,6 +4,8 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { login } from '../lib/auth';
+import { authStorage } from '../lib/storage';
+import { setInsforgeAuthToken } from '../lib/insforge';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -23,9 +25,12 @@ export default function LoginPage() {
       if (result.error) {
         setError(result.message || 'Login failed');
       } else if (result.accessToken) {
-        localStorage.setItem('accessToken', result.accessToken);
-        localStorage.setItem('user', JSON.stringify(result.user));
+        authStorage.setToken(result.accessToken);
+        setInsforgeAuthToken(result.accessToken);
+        authStorage.setUser(result.user);
         router.push('/dashboard');
+      } else {
+        setError(result.message || 'Login failed');
       }
     } catch {
       setError('An unexpected error occurred');

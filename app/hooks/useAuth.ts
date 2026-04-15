@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { User } from '../lib/types';
 import { getCurrentUser, logout } from '../lib/auth';
+import { authStorage } from '../lib/storage';
 
 interface UseAuthReturn {
   user: User | null;
@@ -16,25 +17,42 @@ export function useAuth(redirectIfUnauthenticated = true): UseAuthReturn {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const isMounted = useRef(true);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
-    const checkUser = async () => {
-      const userData = await getCurrentUser();
-      setUser(userData);
-      setIsLoading(false);
+    isMounted.current = true;
+    abortControllerRef.current = new AbortController();
 
-      if (redirectIfUnauthenticated && !userData) {
-        router.push('/login');
+    const checkUser = async () => {
+      try {
+        const userData = await getCurrentUser();
+        if (isMounted.current) {
+          setUser(userData);
+          setIsLoading(false);
+
+          if (redirectIfUnauthenticated && !userData) {
+            router.push('/login');
+          }
+        }
+      } catch {
+        if (isMounted.current) {
+          setIsLoading(false);
+        }
       }
     };
 
     checkUser();
+
+    return () => {
+      isMounted.current = false;
+      abortControllerRef.current?.abort();
+    };
   }, [redirectIfUnauthenticated, router]);
 
   const handleLogout = useCallback(async () => {
     await logout();
-    localStorage.removeItem('accessToken');
-    localStorage.removeItem('user');
+    authStorage.clear();
     router.push('/login');
   }, [router]);
 

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { useAuth } from '../hooks/useAuth';
 import { LoadingScreen } from '../components';
@@ -13,51 +13,70 @@ export default function DashboardPage() {
   const [newBoardName, setNewBoardName] = useState('');
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState('');
+  const isMounted = useRef(true);
 
   useEffect(() => {
+    isMounted.current = true;
+
     if (user) {
       fetchBoards();
     }
+
+    return () => {
+      isMounted.current = false;
+    };
   }, [user]);
 
-  const fetchBoards = async () => {
-    if (!user) return;
+  const fetchBoards = useCallback(async () => {
+    if (!user || !isMounted.current) return;
     try {
       const data = await getBoards(user.id);
-      setBoards(data);
+      if (isMounted.current) {
+        setBoards(data);
+      }
     } catch (err) {
       console.error('Error fetching boards:', err);
     }
-  };
+  }, [user]);
 
-  const handleCreateBoard = async (e: React.FormEvent) => {
+  const handleCreateBoard = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newBoardName.trim() || !user) return;
+    if (!newBoardName.trim() || !user || !isMounted.current) return;
 
     setCreating(true);
     setError('');
 
     try {
       const board = await createBoard(newBoardName.trim(), user.id);
-      setBoards([board, ...boards]);
-      setNewBoardName('');
+      if (isMounted.current) {
+        setBoards((prev) => [board, ...prev]);
+        setNewBoardName('');
+      }
     } catch (err: any) {
-      setError(err.message || 'Failed to create board');
+      if (isMounted.current) {
+        setError(err.message || 'Failed to create board');
+      }
     } finally {
-      setCreating(false);
+      if (isMounted.current) {
+        setCreating(false);
+      }
     }
-  };
+  }, [newBoardName, user]);
 
-  const handleDeleteBoard = async (boardId: string) => {
+  const handleDeleteBoard = useCallback(async (boardId: string) => {
     if (!confirm('Are you sure you want to delete this board?')) return;
 
     try {
       await deleteBoard(boardId);
-      setBoards(boards.filter((b) => b.id !== boardId));
+      if (isMounted.current) {
+        setBoards((prev) => prev.filter((b) => b.id !== boardId));
+      }
     } catch (err: any) {
-      setError(err.message || 'Failed to delete board');
+      if (isMounted.current) {
+        setError(err.message || 'Failed to delete board');
+      }
     }
-  };
+  }, []);
 
   if (isLoading) {
     return <LoadingScreen />;
