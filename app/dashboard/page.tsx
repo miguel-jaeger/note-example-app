@@ -1,90 +1,45 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { logout, getCurrentUser } from '../lib/insforge';
-import insforge from '../lib/insforge';
-
-interface Board {
-  id: string;
-  name: string;
-  created_at: string;
-}
+import { useAuth } from '../hooks/useAuth';
+import { LoadingScreen } from '../components';
+import { getBoards, createBoard, deleteBoard } from '../lib/api';
+import type { Board } from '../lib/types';
 
 export default function DashboardPage() {
-  const router = useRouter();
-  const [user, setUser] = useState<any>(null);
+  const { user, isLoading, logout } = useAuth();
   const [boards, setBoards] = useState<Board[]>([]);
-  const [loading, setLoading] = useState(true);
   const [newBoardName, setNewBoardName] = useState('');
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
-    checkUser();
-  }, []);
-
-  const checkUser = async () => {
-    const userData = await getCurrentUser();
-    if (!userData) {
-      router.push('/login');
-      return;
+    if (user) {
+      fetchBoards();
     }
-    setUser(userData);
-    fetchBoards(userData.id);
-  };
+  }, [user]);
 
-  const fetchBoards = async (userId: string) => {
+  const fetchBoards = async () => {
+    if (!user) return;
     try {
-      const { data, error } = await insforge.database
-        .from('boards')
-        .select('*')
-        .eq('user_id', userId)
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-      setBoards(data || []);
+      const data = await getBoards(user.id);
+      setBoards(data);
     } catch (err) {
       console.error('Error fetching boards:', err);
-    } finally {
-      setLoading(false);
     }
-  };
-
-  const handleLogout = async () => {
-    await logout();
-    localStorage.removeItem('accessToken');
-    localStorage.removeItem('user');
-    router.push('/login');
   };
 
   const handleCreateBoard = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newBoardName.trim()) return;
+    if (!newBoardName.trim() || !user) return;
 
     setCreating(true);
     setError('');
 
     try {
-      const { data, error } = await insforge.database
-        .from('boards')
-        .insert({ name: newBoardName.trim(), user_id: user.id })
-        .select()
-        .single();
-
-      if (error) throw error;
-
-      // Create default columns for the new board
-      const defaultColumns = [
-        { name: 'To Do', position: 0, board_id: data.id },
-        { name: 'In Progress', position: 1, board_id: data.id },
-        { name: 'Done', position: 2, board_id: data.id },
-      ];
-
-      await insforge.database.from('columns').insert(defaultColumns);
-
-      setBoards([data, ...boards]);
+      const board = await createBoard(newBoardName.trim(), user.id);
+      setBoards([board, ...boards]);
       setNewBoardName('');
     } catch (err: any) {
       setError(err.message || 'Failed to create board');
@@ -97,24 +52,19 @@ export default function DashboardPage() {
     if (!confirm('Are you sure you want to delete this board?')) return;
 
     try {
-      const { error } = await insforge.database
-        .from('boards')
-        .delete()
-        .eq('id', boardId);
-
-      if (error) throw error;
+      await deleteBoard(boardId);
       setBoards(boards.filter((b) => b.id !== boardId));
     } catch (err: any) {
       setError(err.message || 'Failed to delete board');
     }
   };
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-zinc-100 dark:bg-zinc-900">
-        <p className="text-zinc-600 dark:text-zinc-400">Loading...</p>
-      </div>
-    );
+  if (isLoading) {
+    return <LoadingScreen />;
+  }
+
+  if (!user) {
+    return null;
   }
 
   return (
@@ -127,10 +77,10 @@ export default function DashboardPage() {
           </h1>
           <div className="flex items-center gap-4">
             <span className="text-sm text-zinc-600 dark:text-zinc-400">
-              {user?.email}
+              {user.email}
             </span>
             <button
-              onClick={handleLogout}
+              onClick={logout}
               className="px-4 py-2 text-sm bg-zinc-100 dark:bg-zinc-700 hover:bg-zinc-200 dark:hover:bg-zinc-600 text-zinc-700 dark:text-zinc-300 rounded-lg transition-colors"
             >
               Logout

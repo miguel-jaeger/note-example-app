@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { register } from '../lib/insforge';
+import { register } from '../lib/auth';
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -28,7 +28,7 @@ export default function RegisterPage() {
         localStorage.setItem('user', JSON.stringify(result.user));
         router.push('/dashboard');
       }
-    } catch (err) {
+    } catch {
       setError('An unexpected error occurred');
     } finally {
       setLoading(false);
