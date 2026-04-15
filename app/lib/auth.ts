@@ -3,7 +3,7 @@ import { authStorage } from './storage';
 
 const API_BASE = process.env.NEXT_PUBLIC_INSFORGE_URL || 'https://7vxqqu38.us-east.insforge.app';
 
-function getAuthHeaders() {
+function getAuthHeaders(): Record<string, string> {
   const token = authStorage.getToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
